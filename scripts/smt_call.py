@@ -106,7 +106,9 @@ def llm_chat(messages: list[dict], llm_base_url: str, llm_api_key: str, llm_mode
     }
     try:
         import requests as _req
-        resp = _req.post(url, headers=headers, json=body, timeout=300)
+        # 绕过系统代理（Windows 系统代理可能拦截内网 LLM 地址，导致 Privoxy 500/超时）
+        resp = _req.post(url, headers=headers, json=body, timeout=300,
+                         proxies={"http": None, "https": None})
         resp.raise_for_status()
         data = resp.json()
         content = data["choices"][0]["message"]["content"]
