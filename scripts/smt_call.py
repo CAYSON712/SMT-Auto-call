@@ -336,7 +336,9 @@ def main():
         """,
     )
 
-    parser.add_argument("--scenario", type=str, required=True, help="对话场景描述")
+    parser.add_argument("--scenario", type=str, default=None, help="对话场景描述（二选一：--scenario 或 --scenario-file）")
+    parser.add_argument("--scenario-file", type=str, default=None,
+                        help="从 UTF-8 文件读取场景描述（Windows 命令行中文传参易乱码，推荐用此方式）")
 
     parser.add_argument("--assistant-id", type=int, default=ASSISTANT_ID, help=f"Assistant ID，默认 {ASSISTANT_ID}")
     parser.add_argument("--region", default=REGION, help=f"地区代码，默认 {REGION}")
@@ -352,8 +354,20 @@ def main():
 
     args = parser.parse_args()
 
+    if args.scenario and args.scenario_file:
+        print("[错误] --scenario 和 --scenario-file 只能二选一", file=sys.stderr)
+        sys.exit(1)
+
+    scenario = args.scenario
+    if args.scenario_file:
+        with open(args.scenario_file, "r", encoding="utf-8") as f:
+            scenario = f.read().strip()
+    if not scenario:
+        print("[错误] 请提供场景描述（--scenario 或 --scenario-file）", file=sys.stderr)
+        sys.exit(1)
+
     run_dialog(
-        scenario=args.scenario,
+        scenario=scenario,
         smt_base_url=args.smt_base_url,
         smt_api_key=args.smt_api_key,
         assistant_id=args.assistant_id,
