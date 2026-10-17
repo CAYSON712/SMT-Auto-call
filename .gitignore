@@ -7,3 +7,7 @@
 # 忽略对话日志（可能包含敏感对话数据）
 result/*.log
 !result/.gitkeep
+
+# 忽略 Python 缓存
+__pycache__/
+*.pyc
