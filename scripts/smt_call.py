@@ -29,6 +29,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
 RESULT_DIR = os.path.join(PROJECT_DIR, "result")
 ENV_PATH = os.path.join(PROJECT_DIR, ".env")
+SCENARIOS_PATH = os.path.join(PROJECT_DIR, "scenarios.md")
 
 
 def load_env(env_path: str) -> dict:
@@ -57,6 +58,122 @@ MAX_ROUNDS = int(env_config.get("MAX_ROUNDS", "20"))
 LLM_BASE_URL = env_config.get("LLM_BASE_URL", "https://apihub.agnes-ai.com/v1")
 LLM_API_KEY = env_config.get("LLM_API_KEY", "sk-HgbOgK3QZv6JKRCr54SjpF6OCLu5unV4plFdh3He3DcVZzbr")
 LLM_MODEL = env_config.get("LLM_MODEL", "agnes-2.0-flash")
+
+
+# ============================================================
+# 场景库解析（scenarios.md）
+# ============================================================
+
+def load_scenarios(path: str = SCENARIOS_PATH) -> dict:
+    """解析 scenarios.md，返回 {用例名: {category, text}}。
+
+    结构约定：
+        ## <标签>            -> Call Recording 标签名（也可作为 --case 别名）
+        ### <用例名>         -> 用例名（--case 正式名）
+        <正文>               -> 场景描述
+    """
+    scenarios: dict[str, dict] = {}
+    if not os.path.exists(path):
+        return scenarios
+
+    category = ""
+    name = None
+    buf: list[str] = []
+
+    def flush():
+        if name:
+            text = "\n".join(buf).strip()
+            if text:
+                scenarios[name] = {"category": category, "text": text}
+
+    with open(path, "r", encoding="utf-8") as f:
+        for raw in f:
+            line = raw.rstrip("\n")
+            if line.startswith("## "):
+                flush()
+                name, buf = None, []
+                category = line[3:].strip()
+            elif line.startswith("### "):
+                flush()
+                name, buf = line[4:].strip(), []
+            elif name is not None:
+                buf.append(line)
+    flush()
+    return scenarios
+
+
+def resolve_case(query: str, scenarios: dict) -> str | None:
+    """把 --case 的输入解析成实际用例名。
+
+    支持三种写法：
+      1. 完整用例名（pickup）
+      2. 中文标签名（自提订单）
+      3. 模糊包含匹配（自提 / 配送 / 3rd ...）
+    """
+    if not query:
+        return None
+
+    q = query.strip()
+    # 1. 精确用例名（忽略大小写）
+    for name in scenarios:
+        if name.lower() == q.lower():
+            return name
+
+    # 2. 精确标签名
+    for name, info in scenarios.items():
+        if info["category"] == q:
+            return name
+
+    # 3. 模糊匹配：查询词是标签名/用例名的一部分（如 "自提" -> "自提订单"）
+    candidates = [
+        name for name, info in scenarios.items()
+        if q.lower() in name.lower() or q in info["category"]
+    ]
+
+    # 4. 双向子串：查询词与标签名互为子串（如 "跑自提"~"自提订单"、"自提"~"自提订单"）
+    for name, info in scenarios.items():
+        cat = info["category"]
+        if not cat:
+            continue
+        # 找出查询词中与标签重合的最长连续片段
+        if cat in q or q in cat:
+            if name not in candidates:
+                candidates.append(name)
+            continue
+        # 标签名任意连续子串（长度>=2）出现在查询词中
+        for i in range(len(cat) - 1):
+            for j in range(len(cat), i + 1, -1):
+                if cat[i:j] in q:
+                    if name not in candidates:
+                        candidates.append(name)
+                    break
+
+    candidates = list(dict.fromkeys(candidates))
+
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        # 多个命中时，取标签名与查询词重合字数最多的
+        scores = {
+            n: sum(1 for ch in set(scenarios[n]["category"]) if ch in q)
+            for n in candidates
+        }
+        best_score = max(scores.values())
+        top = [n for n, s in scores.items() if s == best_score]
+        if len(top) == 1:
+            return top[0]
+        print(f"[提示] '{query}' 匹配到多个场景: {', '.join(candidates)}，请用更精确的名字", file=sys.stderr)
+        return None
+    return None
+
+
+def list_scenarios(scenarios: dict) -> str:
+    lines = []
+    for name, info in scenarios.items():
+        lines.append(f"\n【{info['category']}】")
+        lines.append(f"  --case {name}     (也可用: --case \"{info['category']}\")")
+        lines.append(f"      {info['text'][:70]}{'...' if len(info['text']) > 70 else ''}")
+    return "\n".join(lines)
 
 
 # ============================================================
@@ -336,9 +453,11 @@ def main():
         """,
     )
 
-    parser.add_argument("--scenario", type=str, default=None, help="对话场景描述（二选一：--scenario 或 --scenario-file）")
-    parser.add_argument("--scenario-file", type=str, default=None,
-                        help="从 UTF-8 文件读取场景描述（Windows 命令行中文传参易乱码，推荐用此方式）")
+    parser.add_argument("--case", type=str, default=None,
+                        help="从 scenarios.md 场景库按用例名调用，如 pickup-1 / delivery-1 / inquiry-1")
+    parser.add_argument("--list", action="store_true", help="列出 scenarios.md 中所有可用场景")
+    parser.add_argument("--scenario", type=str, default=None, help="自定义对话场景描述（与 --case/--scenario-file 三选一）")
+    parser.add_argument("--scenario-file", type=str, default=None, help="从 UTF-8 文件读取场景描述")
 
     parser.add_argument("--assistant-id", type=int, default=ASSISTANT_ID, help=f"Assistant ID，默认 {ASSISTANT_ID}")
     parser.add_argument("--region", default=REGION, help=f"地区代码，默认 {REGION}")
@@ -354,16 +473,42 @@ def main():
 
     args = parser.parse_args()
 
-    if args.scenario and args.scenario_file:
-        print("[错误] --scenario 和 --scenario-file 只能二选一", file=sys.stderr)
+    scenarios = load_scenarios()
+
+    if args.list:
+        print(f"场景库: {SCENARIOS_PATH}")
+        if not scenarios:
+            print("[提示] 场景库为空或不存在")
+        else:
+            print(list_scenarios(scenarios))
+            print(f"\n共 {len(scenarios)} 个场景，用 --case <用例名> 调用")
+        return
+
+    provided = [x for x in (args.case, args.scenario, args.scenario_file) if x]
+    if len(provided) > 1:
+        print("[错误] --case / --scenario / --scenario-file 只能三选一", file=sys.stderr)
         sys.exit(1)
 
-    scenario = args.scenario
-    if args.scenario_file:
+    scenario = None
+    if args.case:
+        resolved = resolve_case(args.case, scenarios)
+        if not resolved:
+            print(f"[错误] 场景库中找不到匹配的场景: {args.case}", file=sys.stderr)
+            if scenarios:
+                print(list_scenarios(scenarios), file=sys.stderr)
+            sys.exit(1)
+        if resolved != args.case:
+            print(f"[场景] {args.case} -> {resolved}（{scenarios[resolved]['category']}）")
+        scenario = scenarios[resolved]["text"]
+    elif args.scenario_file:
         with open(args.scenario_file, "r", encoding="utf-8") as f:
             scenario = f.read().strip()
+    elif args.scenario:
+        scenario = args.scenario
+
     if not scenario:
-        print("[错误] 请提供场景描述（--scenario 或 --scenario-file）", file=sys.stderr)
+        print("[错误] 请提供场景：--case <用例名> 或 --scenario <描述> 或 --scenario-file <文件>",
+              file=sys.stderr)
         sys.exit(1)
 
     run_dialog(
