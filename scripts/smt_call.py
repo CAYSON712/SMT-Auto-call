@@ -65,12 +65,14 @@ LLM_MODEL = env_config.get("LLM_MODEL", "agnes-2.0-flash")
 # ============================================================
 
 def load_scenarios(path: str = SCENARIOS_PATH) -> dict:
-    """解析 scenarios.md，返回 {用例名: {category, text}}。
+    """解析 scenarios.md，返回 {用例名: {category, text, aliases}}。
 
     结构约定：
-        ## <标签>            -> Call Recording 标签名（也可作为 --case 别名）
-        ### <用例名>         -> 用例名（--case 正式名）
-        <正文>               -> 场景描述
+        ## <标签>                      -> Call Recording 标签名
+        ### <用例名> | <别名1> | <别名2>  -> 用例名及别名（--case 用任何一个都行）
+        <正文>                         -> 场景描述
+
+    别名建议用纯 ASCII（拼音/英文），规避 Windows 命令行中文传参乱码。
     """
     scenarios: dict[str, dict] = {}
     if not os.path.exists(path):
@@ -78,24 +80,28 @@ def load_scenarios(path: str = SCENARIOS_PATH) -> dict:
 
     category = ""
     name = None
+    aliases: list[str] = []
     buf: list[str] = []
 
     def flush():
         if name:
             text = "\n".join(buf).strip()
             if text:
-                scenarios[name] = {"category": category, "text": text}
+                scenarios[name] = {"category": category, "text": text, "aliases": aliases}
 
     with open(path, "r", encoding="utf-8") as f:
         for raw in f:
             line = raw.rstrip("\n")
             if line.startswith("## "):
                 flush()
-                name, buf = None, []
+                name, buf, aliases = None, [], []
                 category = line[3:].strip()
             elif line.startswith("### "):
                 flush()
-                name, buf = line[4:].strip(), []
+                parts = [p.strip() for p in line[4:].split("|") if p.strip()]
+                name = parts[0] if parts else None
+                aliases = parts[1:]
+                buf = []
             elif name is not None:
                 buf.append(line)
     flush()
@@ -118,6 +124,12 @@ def resolve_case(query: str, scenarios: dict) -> str | None:
     for name in scenarios:
         if name.lower() == q.lower():
             return name
+
+    # 1.5 精确别名（拼音/英文，纯 ASCII，规避中文传参乱码）
+    for name, info in scenarios.items():
+        for alias in info.get("aliases", []):
+            if alias.lower() == q.lower():
+                return name
 
     # 2. 精确标签名
     for name, info in scenarios.items():

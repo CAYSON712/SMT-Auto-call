@@ -49,11 +49,44 @@ description: This skill should be used when the user wants to simulate an AI aut
 ## 操作步骤
 
 1. **配置环境** — 确认 `.env` 文件已配置好 LLM API Key 和 SMT API Key
-2. **询问场景** — 向用户确认本次要测试的对话场景和目标
-3. **执行对话** — 运行 `python scripts/smt_call.py --scenario "用户描述的场景"`
+2. **选择场景** — 场景统一维护在 `scenarios.md`（11 个标签各 1 个场景），用 `--case` 调用
+3. **执行对话** — 运行 `python scripts/smt_call.py --case <别名>`
 4. **查看结果** — 观察控制台输出的对话流程，确认 LLM 是否正常驱动对话
 5. **评分（可选）** — 运行 `python scripts/evaluate.py` 对最新对话进行 DeepEval 评分，或 `python scripts/evaluate.py --all` 评分所有日志
 6. **检查日志** — 到 `result/` 目录下查看对话记录和评分结果
+
+## 场景库用法
+
+```bash
+# 列出所有场景
+python scripts/smt_call.py --list
+
+# 按标签跑场景（推荐用纯 ASCII 别名）
+python scripts/smt_call.py --case ziti        # 自提订单
+python scripts/smt_call.py --case peisong     # 配送订单
+python scripts/smt_call.py --case dingwei     # 订位
+python scripts/smt_call.py --case zixun       # 咨询
+python scripts/smt_call.py --case disanfang   # 第三方订单通知
+python scripts/smt_call.py --case tousu       # 投诉反馈
+python scripts/smt_call.py --case tongzhi     # 信息通知
+python scripts/smt_call.py --case zhuanjie    # 转接人工
+python scripts/smt_call.py --case tuixiao     # 推销电话
+python scripts/smt_call.py --case wuxiao      # 无效电话
+python scripts/smt_call.py --case yuyin       # 语音信箱
+
+# 自定义场景
+python scripts/smt_call.py --scenario "自定义场景描述"
+```
+
+### Windows 中文传参限制（重要）
+
+PowerShell 向 Python 传递中文参数时会发生**不可逆的编码损坏**（实测 `订位` → `璁綅`）。
+设置 `chcp 65001`、`$OutputEncoding`、`PYTHONUTF8` 均无效，因为损坏发生在参数传递阶段。
+
+**因此命令行调用必须使用纯 ASCII 别名**（`ziti` / `dingwei` 等）。
+中文标签名（`--case 自提订单`）仅在程序内部调用或 AI 助手代跑时可用。
+
+如需中文场景描述，改用 `--scenario-file <UTF-8文件>` 或写入 `scenarios.md`。
 
 ## 输出范例
 
