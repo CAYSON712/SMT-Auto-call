@@ -1,9 +1,0 @@
-fix: 场景库新增 ASCII 别名，规避 Windows 中文传参乱码
-
-- scenarios.md 每个用例补充拼音别名（ziti/peisong/dingwei 等）
-- smt_call.py 支持 ### 用例名 | 别名1 | 别名2 语法，精准匹配别名
-- SKILL.md 补充 Windows 中文传参限制说明
-
-背景：PowerShell 向 Python 传中文参数会发生不可逆编码损坏
-（实测 订位 -> 璁綅），chcp 65001 / $OutputEncoding / PYTHONUTF8 均无效，
-损坏发生在参数传递阶段。改用纯 ASCII 别名彻底规避。
